@@ -1,0 +1,6 @@
+wt103_data/
+__pycache__/
+*.pt
+*.npy
+*.faiss
+*.pyc

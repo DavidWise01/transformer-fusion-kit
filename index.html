@@ -1,0 +1,350 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>THE FUSION KIT · three language models, one fair fight, a reliability gate · ROOT0</title>
+<meta name="description" content="A runnable WikiText-103 kit by David Lee Wise / ROOT0: a modified Kneser-Ney 5-gram, a from-scratch transformer, and a kNN-LM datastore, fused by a retrieval-reliability 'shadow gate'. Render-not-invent teardown — the code is real and runnable; the numbers are cited field references; the live engine illustrates the mechanism, not a trained model.">
+<meta name="theme-color" content="#5b4bd6">
+<meta property="og:type" content="website">
+<meta property="og:title" content="THE FUSION KIT · counts + transformer + kNN, gated by reliability">
+<meta property="og:description" content="A real, runnable WikiText-103 language-model kit. Three bodies fused by a shadow gate that trusts retrieval only when the nearest neighbour is close.">
+<link rel="canonical" href="https://davidwise01.github.io/transformer-fusion-kit/">
+<style>
+:root{
+  --paper:#f4f1e8; --pan:#fbf9f2; --pan2:#f6f2e6;
+  --ink:#23242c; --ink2:#4c4d58; --dim:#847e6f;
+  --violet:#5b4bd6; --violet2:#4234b0;   /* neural */
+  --amber:#c07a1e; --amber2:#9a5f12;     /* counts */
+  --teal:#2f8f86; --teal2:#1f6c64;       /* kNN */
+  --rose:#c0466e;                        /* fusion */
+  --line:#e0d9c6; --line2:#ece5d4;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --mono:ui-monospace,"SFMono-Regular","Cascadia Code","Consolas",monospace;
+  --shadow:0 1px 0 #fff9, 0 16px 36px -24px #23242c44;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--serif);font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;
+  background-image:repeating-linear-gradient(0deg,#0000 0 30px,#23242c07 30px 31px),repeating-linear-gradient(90deg,#0000 0 30px,#23242c07 30px 31px)}
+.wrap{max-width:1060px;margin:0 auto;padding:0 22px}
+a{color:var(--violet2);text-underline-offset:2px}
+h1,h2,h3{line-height:1.13;font-weight:600;letter-spacing:.2px}
+.mono{font-family:var(--mono)}
+.tick{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+header.top{padding:40px 0 14px}
+.kick{font-family:var(--mono);font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--violet2)}
+h1.mh{font-size:clamp(32px,6.4vw,56px);margin:.08em 0 .12em;letter-spacing:.4px}
+h1.mh .g{color:var(--rose)}
+.lede{font-size:18.5px;color:var(--ink2);max-width:64ch;margin:.4em 0 0}
+.lede b{color:var(--ink);font-weight:600}
+.eqbar{margin:22px 0 4px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:linear-gradient(180deg,var(--pan),var(--pan2));box-shadow:var(--shadow);
+  font-family:var(--mono);font-size:15px;overflow-x:auto;white-space:nowrap;color:var(--ink)}
+.eqbar .n{color:var(--violet2)} .eqbar .c{color:var(--amber2)} .eqbar .k{color:var(--teal2)} .eqbar .f{color:var(--rose)}
+.eqbar small{display:block;white-space:normal;font-family:var(--serif);font-size:12.5px;color:var(--dim);margin-top:7px;letter-spacing:0}
+
+section{padding:34px 0 4px}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--amber2)}
+h2.sec{font-size:clamp(23px,4vw,31px);margin:.14em 0 .18em}
+.sub{color:var(--ink2);max-width:68ch;margin:0 0 18px}
+
+/* three bodies */
+.bodies{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.body{border:1px solid var(--line);border-radius:13px;background:var(--pan);box-shadow:var(--shadow);padding:16px 16px 14px;position:relative;overflow:hidden}
+.body:before{content:"";position:absolute;left:0;top:0;right:0;height:4px;background:var(--bc)}
+.body .bt{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--bc);font-weight:600}
+.body h3{font-size:19px;margin:3px 0 2px}
+.body .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:15px;color:var(--bc);font-weight:600;margin:2px 0 8px}
+.body p{font-size:14px;color:var(--ink2);margin:0}
+.body code{font-family:var(--mono);font-size:12px;background:#fff;border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:var(--ink)}
+
+/* live engine */
+.engine{border:1px solid var(--line);border-radius:15px;background:var(--pan);box-shadow:var(--shadow);overflow:hidden}
+.engine .etop{display:flex;align-items:center;gap:10px;padding:11px 16px;background:linear-gradient(180deg,#fff8,#fff0);border-bottom:1px solid var(--line2);font-family:var(--mono);font-size:12px;color:var(--ink2);flex-wrap:wrap}
+.engine .etop b{color:var(--rose)}
+.egrid{display:grid;grid-template-columns:1fr 1fr;gap:0}
+.epanel{padding:15px 17px;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2)}
+.epanel h4{margin:0 0 9px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);display:flex;align-items:center;gap:7px}
+.epanel h4 .sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+.dist{display:flex;flex-direction:column;gap:4px}
+.row{display:grid;grid-template-columns:56px 1fr 44px;align-items:center;gap:8px;font-size:13px}
+.row .lab{font-family:var(--mono);font-size:12px;color:var(--ink2);text-align:right}
+.row .barwrap{background:#efe9d8;border-radius:4px;height:15px;overflow:hidden;border:1px solid var(--line2)}
+.row .bar{display:block;height:100%;border-radius:4px 0 0 4px;transition:width .18s ease}
+.row .pv{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right}
+.row.tru .lab{color:var(--rose);font-weight:700}
+.row.tru .lab:after{content:" ◄ true"}
+.gatebox{padding:15px 17px;border-bottom:1px solid var(--line2)}
+.gatebox .glab{font-family:var(--mono);font-size:12px;color:var(--ink2);display:flex;justify-content:space-between;margin-bottom:6px}
+.gatebox input[type=range]{width:100%;accent-color:var(--teal)}
+.wbar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:12px 0 5px;font-family:var(--mono);font-size:10.5px;color:#fff;font-weight:600}
+.wbar div{display:flex;align-items:center;justify-content:center;transition:width .18s ease;white-space:nowrap;min-width:0}
+.wn{background:var(--violet)} .wc{background:var(--amber)} .wk{background:var(--teal)}
+.gform{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin-top:8px;line-height:1.7}
+.gform b{color:var(--teal2)}
+.fusedwrap{padding:15px 17px}
+.readout{font-family:var(--mono);font-size:12.5px;color:var(--ink2);margin-top:10px;padding:10px 12px;background:var(--pan2);border:1px solid var(--line2);border-radius:9px;line-height:1.6}
+.readout b{color:var(--rose)}
+.enote{padding:11px 17px;font-family:var(--mono);font-size:11px;color:var(--dim);background:var(--pan2);line-height:1.6}
+
+/* pipeline */
+.pipe{border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+.pstep{display:grid;grid-template-columns:30px 1fr auto;gap:12px;align-items:center;padding:11px 15px;border-bottom:1px solid var(--line2);background:var(--pan)}
+.pstep:last-child{border-bottom:0}
+.pstep .pn{font-family:var(--mono);font-size:12px;color:#fff;background:var(--violet);width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600}
+.pstep code{font-family:var(--mono);font-size:13px;color:var(--ink)}
+.pstep .desc{font-size:13.5px;color:var(--ink2)}
+.pstep .tm{font-family:var(--mono);font-size:11px;color:var(--dim);white-space:nowrap}
+
+/* table */
+.tbl{width:100%;border-collapse:collapse;font-size:14.5px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.tbl th,.tbl td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--line2)}
+.tbl th{background:var(--pan2);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);font-weight:600}
+.tbl td:first-child{color:var(--ink)}
+.tbl .tick{color:var(--violet2);font-weight:600}
+.tblcap{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin-top:9px}
+
+/* code modules */
+.mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:11px}
+.mod{border:1px solid var(--line);border-radius:10px;background:var(--pan);padding:11px 13px;box-shadow:var(--shadow)}
+.mod .fn{font-family:var(--mono);font-size:13px;color:var(--violet2);font-weight:600}
+.mod .d{font-size:13px;color:var(--ink2);margin-top:3px}
+
+.card{border:1px solid var(--line);border-radius:12px;background:var(--pan);padding:16px 18px;box-shadow:var(--shadow)}
+.card h3{font-size:14px;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--violet2);margin:0 0 8px}
+.card.warn h3{color:var(--amber2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+.card p{margin:.35em 0;font-size:14.5px;color:var(--ink2)}
+.card ul{margin:.3em 0;padding-left:1.1em;font-size:13.8px;color:var(--ink2)}
+.src{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin-top:14px;line-height:1.75}
+.backbar{margin:30px 0 0;padding:15px 0;border-top:1px solid var(--line);display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:12.5px}
+.backbar a{text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:7px 12px;background:var(--pan)}
+.backbar a:hover{border-color:var(--violet)}
+footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--dim)}
+@media(max-width:760px){.bodies,.egrid,.two{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header class="top"><div class="wrap">
+  <div class="kick">ROOT0 · David Lee Wise · the ML wing</div>
+  <h1 class="mh">THE FUSION KIT <span class="g">⛌</span></h1>
+  <p class="lede">Three language models pointed at one corpus (WikiText-103), each earning a number that stands next to the field — then fused by a <b>reliability gate</b> that trusts memory only when memory has a close match. A <b>real, runnable</b> kit; this page is its honest teardown.</p>
+  <div class="eqbar">
+    P<sub>final</sub>(w) = <span class="n">w<sub>n</sub>·P<sub>transformer</sub></span> + <span class="c">w<sub>c</sub>·P<sub>KN</sub></span> + <span class="k">w<sub>k</sub>·P<sub>kNN</sub></span> &nbsp;,&nbsp; <span class="f">w<sub>k</sub> = clip( b + s · e<sup>−d<sub>nn</sub>/τ</sup> )</span>
+    <small>The three bodies mix linearly; the kNN weight <b>w<sub>k</sub></b> is set by the <b>shadow gate</b> — it rises with retrieval reliability e<sup>−d/τ</sup> (a close nearest neighbour → trust the datastore). Verbatim from <code style="font-family:var(--mono)">fusion.py</code>.</small>
+  </div>
+</div></header>
+
+<main class="wrap">
+
+<!-- THREE BODIES -->
+<section id="bodies">
+  <div class="eyebrow">The fair fight</div>
+  <h2 class="sec">Three bodies, three comparable numbers</h2>
+  <p class="sub">The whole point is comparability: full vocabulary, the canonical corpus and splits, no UNK inflation — so each body’s perplexity can be read against published work instead of an easier private task. The numbers below are <b>field references</b> the kit is built to reach, not measurements taken on this page.</p>
+  <div class="bodies">
+    <div class="body" style="--bc:var(--amber)">
+      <div class="bt">counts</div>
+      <h3>Modified Kneser-Ney 5-gram</h3>
+      <div class="num">the count baseline · ~48 target</div>
+      <p>The count body — interpolated modified KN with absolute discounts <code>D=n1/(n1+2·n2)</code> and continuation counts (Chen &amp; Goodman), vectorised in numpy. Full-vocab canonical, so it produces a real, comparable n-gram number (the README aims at ~48). <code>kn_baseline.py</code></p>
+    </div>
+    <div class="body" style="--bc:var(--violet)">
+      <div class="bt">neural</div>
+      <h3>Transformer, from scratch</h3>
+      <div class="num">≈ 20–29 test ppl (by size)</div>
+      <p>A plain decoder-only GPT (pre-LN blocks, weight-tied head, AdamW + cosine, mixed precision, resumable). Presets 30M / 120M params. Where it lands is where its size puts it on the scaling curve. <code>model.py · train.py</code></p>
+    </div>
+    <div class="body" style="--bc:var(--teal)">
+      <div class="bt">semi-parametric</div>
+      <h3>kNN-LM datastore</h3>
+      <div class="num">−2 to −4 ppl off the net</div>
+      <p>The transformer’s own hidden states (the input to the final softmax) stored as keys → next-token values; at test, retrieve the K nearest and read their futures. FAISS index or brute-force fallback. <code>build_datastore.py</code></p>
+    </div>
+  </div>
+</section>
+
+<!-- SHADOW GATE + LIVE ENGINE -->
+<section id="gate">
+  <div class="eyebrow">The piece that won the arc</div>
+  <h2 class="sec">The shadow gate, made visible</h2>
+  <p class="sub">Plain kNN-LM trusts the datastore by a fixed weight. This kit makes that weight <b>adaptive</b>: it scales with how close the nearest neighbour actually is. Retrieval that found a near-identical context is worth leaning on; retrieval that only found something vaguely similar is not. Slide the neighbour distance and watch the gate — and the surprise on the true token — respond.</p>
+  <div class="engine">
+    <div class="etop">◧ fusion engine · <b>an illustration of the mechanism</b>, not a trained model — the three distributions are illustrative; the gate math is <span class="mono">fusion.py</span> exactly</div>
+    <div class="egrid">
+      <div class="epanel">
+        <h4><span class="sw" style="background:var(--violet)"></span>P<sub>transformer</sub> · the net’s guess</h4>
+        <div class="dist" id="dPn"></div>
+      </div>
+      <div class="epanel">
+        <h4><span class="sw" style="background:var(--amber)"></span>P<sub>KN</sub> · the counts’ guess</h4>
+        <div class="dist" id="dPc"></div>
+      </div>
+      <div class="epanel">
+        <h4><span class="sw" style="background:var(--teal)"></span>P<sub>kNN</sub> · the datastore’s guess</h4>
+        <div class="dist" id="dPk"></div>
+      </div>
+      <div class="epanel gatebox">
+        <h4><span class="sw" style="background:var(--rose)"></span>the shadow gate</h4>
+        <div class="glab"><span>nearest-neighbour distance d<sub>nn</sub></span><span class="tick" id="dval">0.60</span></div>
+        <input type="range" id="dnn" min="0" max="3" step="0.05" value="0.6">
+        <div class="glab" style="margin-top:9px"><span>retrieval reliability&nbsp; e<sup>−d/τ</sup></span><span class="tick" id="relv">—</span></div>
+        <div class="wbar" id="wbar"></div>
+        <div class="gform">w<sub>k</sub> = clip( <b>b</b> + <b>s</b>·rel , 0, 0.6 ),&nbsp; w<sub>n</sub> = 1 − w<sub>c</sub> − w<sub>k</sub><br>b=0.05 · s=0.55 · w<sub>c</sub>=0.25 · τ=1.0 &nbsp;(real kit grid-searches these on val)</div>
+      </div>
+    </div>
+    <div class="fusedwrap">
+      <h4 style="margin:0 0 9px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--rose)">▸ P<sub>final</sub> · the fused distribution — predicting the word after “…the cat sat on the ___”</h4>
+      <div class="dist" id="dPf"></div>
+      <div class="readout" id="readout"></div>
+    </div>
+    <div class="enote">Surprise = −log₂ P(true) in bits; lower is better (perplexity = 2<sup>mean surprise</sup>). Drag d<sub>nn</sub> toward 0 to simulate finding a near-identical training context — the gate opens, the datastore’s vote counts, and the true token’s surprise drops. Drag it high and the gate closes to its floor: the fusion falls back to net + counts.</div>
+  </div>
+</section>
+
+<!-- PIPELINE -->
+<section id="pipeline">
+  <div class="eyebrow">The kit</div>
+  <h2 class="sec">Five steps, one config</h2>
+  <p class="sub">Every script reads <code style="font-family:var(--mono)">config.py</code> (model size, vocab, knobs). Needs a CUDA GPU for the transformer half; the count body is CPU (RAM-heavy).</p>
+  <div class="pipe">
+    <div class="pstep"><span class="pn">1</span><div><code>python prepare_data.py</code><div class="desc">download WikiText-103, build vocab, tokenize → int32 id arrays</div></div><span class="tm">~5 min · CPU</span></div>
+    <div class="pstep"><span class="pn">2</span><div><code>python kn_baseline.py</code><div class="desc">modified Kneser-Ney 5-gram — the count body (~48)</div></div><span class="tm">~10 min · CPU, RAM-heavy</span></div>
+    <div class="pstep"><span class="pn">3</span><div><code>python train.py</code><div class="desc">train the transformer from scratch (checkpointed, resumable)</div></div><span class="tm">hours · GPU</span></div>
+    <div class="pstep"><span class="pn">4</span><div><code>python build_datastore.py</code><div class="desc">encode train into the kNN datastore (+ FAISS index)</div></div><span class="tm">~30 min · GPU</span></div>
+    <div class="pstep"><span class="pn">5</span><div><code>python fusion.py</code><div class="desc">counts + neural + kNN + shadow gate on test → perplexity</div></div><span class="tm">~15 min · GPU</span></div>
+  </div>
+</section>
+
+<!-- EXPECTATIONS -->
+<section id="expect">
+  <div class="eyebrow">What to expect</div>
+  <h2 class="sec">The numbers it is built to reach</h2>
+  <p class="sub">Word-level test perplexity on WikiText-103. The left column is what this kit’s default config is designed to produce; the right is the published field reference it is meant to stand beside. <b>Nothing here was measured on this page</b> — running the kit takes a GPU and hours.</p>
+  <table class="tbl">
+    <tr><th>body / method</th><th>this kit (default)</th><th>field reference</th></tr>
+    <tr><td>interpolated Kneser-Ney 5-gram</td><td class="tick">~45–55 (README target)</td><td>varies by setup †</td></tr>
+    <tr><td>transformer (d512, 8L, ~30M)</td><td class="tick">~28–35</td><td>GPT-2 small ≈ 29*</td></tr>
+    <tr><td>transformer (d768, 12L, ~120M)</td><td class="tick">~20–24</td><td>GPT-2 large ≈ 18–20*</td></tr>
+    <tr><td>+ kNN-LM fusion</td><td class="tick">−2 to −4</td><td>kNN-LM ~18.65 → ~16.12</td></tr>
+    <tr><td>+ shadow gate (adaptive w<sub>k</sub>)</td><td class="tick">a further small drop</td><td>(this kit’s addition)</td></tr>
+  </table>
+  <p class="tblcap">* GPT-2 uses BPE/subword tokenization, so its perplexity is not <i>strictly</i> comparable to a word-level number — treat the GPT-2 column as an approximate anchor, not an identity.<br>† Published KN 5-gram figures on WikiText-103 vary with vocabulary and pruning (the ~48 the README targets is one commonly-quoted point; n-gram baselines on the full ~267k vocab often run higher). The value is honest <i>because it is comparable</i> — same algorithm, same setup — not because it hits an exact constant. kNN-LM figures: Khandelwal et al. 2020 report 18.65 → 16.12 (kNN-LM), 15.79 with a continuous cache.</p>
+</section>
+
+<!-- CODE -->
+<section id="code">
+  <div class="eyebrow">Render-not-invent</div>
+  <h2 class="sec">The actual code</h2>
+  <p class="sub">This isn’t a description of a kit — it <b>is</b> the kit. Eight files, ~1,000 lines, browsable and clonable. <a href="https://github.com/DavidWise01/transformer-fusion-kit">the repository ↗</a></p>
+  <div class="mods">
+    <div class="mod"><div class="fn">config.py</div><div class="d">paths, device, vocab, model presets, all knobs</div></div>
+    <div class="mod"><div class="fn">prepare_data.py</div><div class="d">download WT-103, word-level vocab, tokenize</div></div>
+    <div class="mod"><div class="fn">kn_baseline.py</div><div class="d">interpolated modified Kneser-Ney, vectorised</div></div>
+    <div class="mod"><div class="fn">model.py</div><div class="d">decoder-only GPT; final LayerNorm = kNN key</div></div>
+    <div class="mod"><div class="fn">train.py</div><div class="d">AdamW, cosine, AMP, grad-accum, resumable</div></div>
+    <div class="mod"><div class="fn">build_datastore.py</div><div class="d">hidden→next-token keys/vals + FAISS index</div></div>
+    <div class="mod"><div class="fn">fusion.py</div><div class="d">the triple mix + shadow gate; reports ppl</div></div>
+    <div class="mod"><div class="fn">README.md</div><div class="d">run order, expectations, the honesty note</div></div>
+  </div>
+</section>
+
+<!-- HONESTY -->
+<section id="honesty">
+  <div class="eyebrow">The colophon</div>
+  <h2 class="sec">What is real here, and what is not</h2>
+  <div class="two">
+    <div class="card">
+      <h3>Real</h3>
+      <ul>
+        <li>The <b>code runs</b> — a complete, coherent pipeline (train/eval/checkpoint, KN recursion, datastore, FAISS), not pseudo-code.</li>
+        <li>The <b>algorithms are canonical and cited</b>: modified Kneser-Ney (Chen &amp; Goodman); kNN-LM with the pre-softmax hidden state as the key (Khandelwal et al. 2020).</li>
+        <li>The <b>comparability logic is sound</b>: WT-103, full vocab, canonical splits is the setup that makes a number legitimately comparable. The kNN-LM (Khandelwal 2020) and Chinchilla figures are verified to source; the exact KN5-on-WT103 constant varies across the literature, so it is stated as the kit’s <i>target</i>, not a fixed fact.</li>
+        <li>The <b>shadow gate</b> — the adaptive, distance-scaled kNN weight — is David’s own addition on top of standard kNN-LM.</li>
+      </ul>
+    </div>
+    <div class="card warn">
+      <h3>Not (and it says so)</h3>
+      <ul>
+        <li><b>Nothing was trained or measured on this page.</b> Running the kit needs a CUDA GPU and hours; the perplexities are targets, not results.</li>
+        <li>The <b>live engine is an illustration</b> of the fusion equation and gate — its three distributions are hand-set to show the mechanism, not read from a trained model.</li>
+        <li>The earlier CPU-sandbox numbers from the arc (71, 82.7…) were <b>never comparable</b> — 5k-vocab with heavy UNK measured an easier task. This kit is the fix.</li>
+        <li>The <b>domain-routing / cardinal-hue layer is intentionally absent</b> — WT-103 is unlabelled, so there is nothing to route. That machinery belongs to the labelled 8-domain corpus; this is the neutral, comparable substrate it rides on.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="src">
+    REFERENCES · Merity, Xiong, Bradbury, Socher (2016) <i>Pointer Sentinel Mixture Models</i> — introduced WikiText-103 · Chen &amp; Goodman (1999) <i>An Empirical Study of Smoothing Techniques</i> — modified Kneser-Ney · Kneser &amp; Ney (1995) — the base smoothing · Khandelwal, Levy, Jurafsky, Zettlemoyer, Lewis (2020, ICLR) <i>Generalization through Memorization: Nearest Neighbor Language Models</i> · Hoffmann et al. (2022) <i>Training Compute-Optimal LLMs</i> (Chinchilla). Dataset: Salesforce/wikitext-103-raw-v1.
+  </div>
+  <div class="backbar">
+    <a href="https://github.com/DavidWise01/transformer-fusion-kit">⧉ the code (GitHub)</a>
+    <a href="https://davidwise01.github.io/ud0/">⌂ ud0 · the atlas</a>
+    <a href="https://davidwise01.github.io/the-city/">⌗ the city</a>
+    <a href="#bodies">↑ top</a>
+  </div>
+</section>
+
+<footer>
+  THE FUSION KIT · a runnable WikiText-103 language-model kit · David Lee Wise / ROOT0 / TriPod LLC · CC-BY-ND-4.0<br>
+  the code is real; the numbers are cited field references; the live engine illustrates the mechanism, not a trained model
+</footer>
+</main>
+
+<script>
+(function(){
+"use strict";
+var TOK=["mat","floor","couch","roof","grass","table"], TRUE=0;
+// illustrative source distributions (each sums to 1) — NOT a trained model
+var Pn=[.28,.30,.18,.05,.07,.12];   // transformer: broad
+var Pc=[.20,.34,.10,.04,.06,.26];   // KN counts: favours frequent continuations
+var Pk=[.70,.12,.05,.02,.03,.08];   // kNN: peaked on the retrieved neighbour's future ("mat")
+var TAU=1.0, B=0.05, S=0.55, WC=0.25, COL={Pn:"#5b4bd6",Pc:"#c07a1e",Pk:"#2f8f86",Pf:"#c0466e"};
+
+function bars(elId, P, col, hiTrue){
+  var el=document.getElementById(elId); if(!el) return;
+  var mx=Math.max.apply(null,P);
+  el.innerHTML = P.map(function(v,i){
+    var w=(v/mx*100).toFixed(1);
+    return '<div class="row'+(hiTrue&&i===TRUE?' tru':'')+'">'+
+      '<span class="lab">'+TOK[i]+'</span>'+
+      '<span class="barwrap"><span class="bar" style="width:'+w+'%;background:'+col+'"></span></span>'+
+      '<span class="pv">'+v.toFixed(2)+'</span></div>';
+  }).join("");
+}
+function log2(x){ return Math.log(x)/Math.LN2; }
+
+function update(){
+  var d=parseFloat(document.getElementById("dnn").value);
+  var rel=Math.exp(-d/TAU);
+  var wk=Math.min(0.6, Math.max(0, B + S*rel));
+  var wn=Math.min(1, Math.max(0, 1 - WC - wk));
+  var wc=WC;
+  var Pf=Pn.map(function(_,i){ return wn*Pn[i] + wc*Pc[i] + wk*Pk[i]; });
+  var s=Pf.reduce(function(a,b){return a+b;},0); Pf=Pf.map(function(v){return v/s;}); // guard
+  document.getElementById("dval").textContent=d.toFixed(2);
+  document.getElementById("relv").textContent=rel.toFixed(3);
+  // weights bar
+  var wb=document.getElementById("wbar");
+  wb.innerHTML='<div class="wn" style="width:'+(wn*100)+'%">net '+wn.toFixed(2)+'</div>'+
+               '<div class="wc" style="width:'+(wc*100)+'%">cnt '+wc.toFixed(2)+'</div>'+
+               '<div class="wk" style="width:'+(wk*100)+'%">kNN '+wk.toFixed(2)+'</div>';
+  bars("dPf", Pf, COL.Pf, true);
+  // readout
+  var surp=(-log2(Pf[TRUE])).toFixed(2);
+  var surpNoK=(function(){ var w=WC, n=1-WC; var p=n*Pn[TRUE]+w*Pc[TRUE]; // gate fully closed comparison
+     return (-log2(p)).toFixed(2); })();
+  var pct=Math.round((wk/0.6)*100);
+  document.getElementById("readout").innerHTML =
+    'gate open <b>'+pct+'%</b> · P<sub>final</sub>(“mat”) = <b>'+Pf[TRUE].toFixed(3)+
+    '</b> · surprise <b>'+surp+' bits</b>. '+
+    (rel>0.55
+      ? 'The neighbour is close, so the gate leans on the datastore — and because that neighbour’s next word was “mat”, the true token’s surprise drops sharply.'
+      : (rel>0.2
+        ? 'A middling neighbour: the gate opens only partway; the datastore nudges but does not dominate.'
+        : 'No close neighbour — the gate is near its floor, and the fusion is essentially net + counts (surprise ≈ '+surpNoK+' bits with the datastore ignored).'));
+}
+bars("dPn", Pn, COL.Pn, false);
+bars("dPc", Pc, COL.Pc, false);
+bars("dPk", Pk, COL.Pk, false);
+document.getElementById("dnn").addEventListener("input", update);
+update();
+})();
+</script>
