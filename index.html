@@ -230,6 +230,38 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
   <p class="tblcap">* GPT-2 uses BPE/subword tokenization, so its perplexity is not <i>strictly</i> comparable to a word-level number — treat the GPT-2 column as an approximate anchor, not an identity.<br>† Published KN 5-gram figures on WikiText-103 vary with vocabulary and pruning (the ~48 the README targets is one commonly-quoted point; n-gram baselines on the full ~267k vocab often run higher). The value is honest <i>because it is comparable</i> — same algorithm, same setup — not because it hits an exact constant. kNN-LM figures: Khandelwal et al. 2020 report 18.65 → 16.12 (kNN-LM), 15.79 with a continuous cache.</p>
 </section>
 
+<!-- MEASURED -->
+<section id="measured">
+  <div class="eyebrow">Actually run</div>
+  <h2 class="sec">Measured on a laptop</h2>
+  <p class="sub">Not estimates — the kit was run on an <b>RTX 4050 Laptop (6 GB)</b>. Two things surfaced that a teardown alone never could.</p>
+  <div class="two">
+    <div class="card">
+      <h3>The transformer learned</h3>
+      <p>The <code>small</code> preset — <b>51M params</b> (the 50k embedding makes it bigger than the "~30M" note) — trained from scratch on the GPU: ~2.8 GB VRAM, AMP, micro-batch 8, ~94% util. Validation perplexity, from random init (≈50,000):</p>
+      <svg viewBox="0 0 300 120" style="width:100%;height:auto;margin:6px 0" font-family="ui-monospace,monospace">
+        <line x1="20" y1="100" x2="292" y2="100" stroke="#e0d9c6" stroke-width="1"/>
+        <polyline fill="none" stroke="#5b4bd6" stroke-width="2.5" stroke-linejoin="round"
+          points="20,17.9 74,58.5 128,73 182,81.9 236,86.9 290,88.9"/>
+        <circle cx="20" cy="17.9" r="3" fill="#5b4bd6"/><circle cx="74" cy="58.5" r="3" fill="#5b4bd6"/><circle cx="128" cy="73" r="3" fill="#5b4bd6"/><circle cx="182" cy="81.9" r="3" fill="#5b4bd6"/><circle cx="236" cy="86.9" r="3" fill="#5b4bd6"/><circle cx="290" cy="88.9" r="4" fill="#c0466e"/>
+        <text x="26" y="16" font-size="9" fill="#4c4d58">871</text>
+        <text x="288" y="83" font-size="10" fill="#c0466e" text-anchor="end" font-weight="700">161</text>
+        <text x="20" y="114" font-size="8" fill="#847e6f">step 500</text>
+        <text x="292" y="114" font-size="8" fill="#847e6f" text-anchor="end">3000</text>
+      </svg>
+      <p style="font-size:12.5px;color:var(--dim);font-family:var(--mono);margin:2px 0 0">3000 of 60,000 steps (~37 min), still dropping — checkpointed, resumes toward the ~30-ppl convergence.</p>
+    </div>
+    <div class="card warn">
+      <h3>The count body was broken — now fixed</h3>
+      <p>At its own default (50k vocab, order 5) the KN 5-gram scored <b style="color:var(--amber2)">2,138</b> ppl — <i>worse than a bigram</i>. The gram keys overflowed int64 and silently hashed while the query stayed exact, so every 4/5-gram lookup missed.</p>
+      <p>Hashing both sides consistently fixes it — perplexity now falls with order as a real KN must:</p>
+      <p style="font-family:var(--mono);font-size:15px;color:var(--ink);margin:4px 0">order 2→5:&nbsp; 408 · 307 · 286 · <b>281</b></p>
+      <p>Short of ~48 because this is a RAM-capped 12M-token subset (the full 83M run lands lower, and ~48 likely also needs the full 3-discount modified KN). <b>The ~48 was a target — now labelled as one.</b></p>
+    </div>
+  </div>
+  <p class="tblcap">Both numbers were computed on the laptop, not taken from a paper. The transformer (partial, 161) already beats the fixed count body (281) — the expected order, shown on real silicon rather than asserted.</p>
+</section>
+
 <!-- CODE -->
 <section id="code">
   <div class="eyebrow">Render-not-invent</div>
