@@ -70,3 +70,21 @@ right to be compared. The CPU-sandbox numbers from the arc (71, 82.7, etc.) neve
 5k vocab with heavy UNK measured an easier, non-comparable task. This is the fix.
 
 — built from the arc; the wall was always tokens and FLOPs, not ideas.
+
+--------------------------------------------------------------------------------
+## Measured on a laptop (July 2026, RTX 4050 6GB) — actually run, not estimated
+
+- **KN bug found and fixed.** The first cut of `kn_baseline.py` overflowed int64 for a 50k
+  vocab at order >= 4 and silently hashed the *stored* keys while the query kept the exact
+  base-V key — so every 4/5-gram lookup missed and the "5-gram" scored **2138** test ppl,
+  *worse than a bigram*. `kn_baseline.py` now hashes both sides consistently. Fixed, the
+  perplexity decreases monotonically with order as it must (12M-token subset, 50k vocab):
+  order-2 **408** -> order-3 **307** -> order-4 **286** -> order-5 **281**. Still far from
+  the aspirational ~48 because this is a RAM-capped 12M-token subset (the full 83M run needs
+  ~10-30GB and lands lower — and reaching ~48 likely also needs the full 3-discount modified
+  KN, not the single-discount interpolation here). **The ~48 above was a target, not a
+  measured or reproduced number** — read it as such.
+
+- **Transformer trains on a 6GB GPU.** The `small` preset is 51M params (the 50k embedding
+  makes it bigger than the "~30M" note); it trains at ~2.8GB VRAM, micro-batch 8, AMP on,
+  ~96% GPU util on an RTX 4050 Laptop.
