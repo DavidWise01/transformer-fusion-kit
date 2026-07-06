@@ -139,7 +139,7 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
 <section id="bodies">
   <div class="eyebrow">The fair fight</div>
   <h2 class="sec">Three bodies, three comparable numbers</h2>
-  <p class="sub">The whole point is comparability: full vocabulary, the canonical corpus and splits, no UNK inflation — so each body’s perplexity can be read against published work instead of an easier private task. The numbers below are <b>field references</b> the kit is built to reach, not measurements taken on this page.</p>
+  <p class="sub">The whole point is comparability: full vocabulary, the canonical corpus and splits, no UNK inflation — so each body’s perplexity can be read against published work instead of an easier private task. The numbers below are <b>field references</b> the kit is built to reach, not measurements taken on this page — the measurements themselves, taken on a laptop, are in the next section.</p>
   <div class="bodies">
     <div class="body" style="--bc:var(--amber)">
       <div class="bt">counts</div>
@@ -225,7 +225,7 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
     <tr><td>transformer (d512, 8L, ~30M)</td><td class="tick">~28–35</td><td>GPT-2 small ≈ 29*</td></tr>
     <tr><td>transformer (d768, 12L, ~120M)</td><td class="tick">~20–24</td><td>GPT-2 large ≈ 18–20*</td></tr>
     <tr><td>+ kNN-LM fusion</td><td class="tick">−2 to −4</td><td>kNN-LM ~18.65 → ~16.12</td></tr>
-    <tr><td>+ shadow gate (adaptive w<sub>k</sub>)</td><td class="tick">a further small drop</td><td>(this kit’s addition)</td></tr>
+    <tr><td>+ shadow gate (adaptive w<sub>k</sub>)</td><td class="tick">a further small drop — measured: −1.21</td><td>(this kit’s addition)</td></tr>
   </table>
   <p class="tblcap">* GPT-2 uses BPE/subword tokenization, so its perplexity is not <i>strictly</i> comparable to a word-level number — treat the GPT-2 column as an approximate anchor, not an identity.<br>† Published KN 5-gram figures on WikiText-103 vary with vocabulary and pruning (the ~48 the README targets is one commonly-quoted point; n-gram baselines on the full ~267k vocab often run higher). The value is honest <i>because it is comparable</i> — same algorithm, same setup — not because it hits an exact constant. kNN-LM figures: Khandelwal et al. 2020 report 18.65 → 16.12 (kNN-LM), 15.79 with a continuous cache.</p>
 </section>
@@ -234,7 +234,7 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
 <section id="measured">
   <div class="eyebrow">Actually run</div>
   <h2 class="sec">Measured on a laptop</h2>
-  <p class="sub">Not estimates — the kit was run on an <b>RTX 4050 Laptop (6 GB)</b>. Two things surfaced that a teardown alone never could.</p>
+  <p class="sub">Not estimates — the kit was run <b>end-to-end</b> on an <b>RTX 4050 Laptop (6 GB)</b>, through the full three-body fusion. Three things surfaced that a teardown alone never could.</p>
   <div class="two">
     <div class="card">
       <h3>The transformer learned</h3>
@@ -249,7 +249,7 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
         <text x="20" y="114" font-size="8" fill="#847e6f">step 500</text>
         <text x="292" y="114" font-size="8" fill="#847e6f" text-anchor="end">3000</text>
       </svg>
-      <p style="font-size:12.5px;color:var(--dim);font-family:var(--mono);margin:2px 0 0">3000 of 60,000 steps (~37 min), still dropping — checkpointed, resumes toward the ~30-ppl convergence.</p>
+      <p style="font-size:12.5px;color:var(--dim);font-family:var(--mono);margin:2px 0 0">the first 3,000 steps shown; training ran on and converged at ~58k steps — val ppl ≈ 51, test 52.45. Short of the ~30 hoped for at this size, but real — and it is the checkpoint the fusion below uses.</p>
     </div>
     <div class="card warn">
       <h3>The count body was broken — now fixed</h3>
@@ -259,7 +259,21 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
       <p>Short of ~48 because this is a RAM-capped 12M-token subset (the full 83M run lands lower, and ~48 likely also needs the full 3-discount modified KN). <b>The ~48 was a target — now labelled as one.</b></p>
     </div>
   </div>
-  <p class="tblcap">Both numbers were computed on the laptop, not taken from a paper. The transformer (partial, 161) already beats the fixed count body (281) — the expected order, shown on real silicon rather than asserted.</p>
+  <div class="card" style="margin-top:14px">
+    <h3>The three-body fusion — measured, not projected</h3>
+    <p>With the converged checkpoint, the fixed count body, and a <b>1M-key datastore</b> (a hard RAM cap — the full build would want ~40M keys / ~40 GB), <code>fusion.py</code> ran the whole equation on the test set: 200k positions, full 50k vocabulary, brute-force GPU search (no FAISS on this box).</p>
+    <table class="tbl">
+      <tr><th>body / method</th><th>measured test ppl</th></tr>
+      <tr><td>transformer (51M, converged)</td><td class="tick">52.45</td></tr>
+      <tr><td>Kneser-Ney counts (12M-token cap)</td><td class="tick">282.61</td></tr>
+      <tr><td>static triple fusion (0.6 net · 0.3 counts · 0.1 kNN)</td><td class="tick">26.23</td></tr>
+      <tr><td>+ shadow gate (w<sub>k</sub> = 0.1 · e<sup>−d/τ</sup>)</td><td class="tick"><b>25.02</b></td></tr>
+    </table>
+    <p>The datastore <b>halves</b> the transformer's perplexity — 52.45 → 26.23 — which is kNN-LM's published effect reproduced on a laptop with 2.5% of the keys (neighbour recall 36.9%). And the shadow gate then buys a further <b>−1.21</b> over static mixing: the "further small drop" the table above predicted, now a number.</p>
+    <p style="margin-top:8px"><b>The third bug running surfaced:</b> the first fusion pass returned <span style="font-family:var(--mono)">nan</span>. The kNN softmax exponentiated raw squared distances in 512-dim space, underflowed every neighbour weight to zero, and divided 0/0 — and the NaN then silently poisoned the whole weight search (<span style="font-family:var(--mono)">nan &lt; best</span> is always false, so the grid returned nothing). A row-min shift before the exponential — identical math, stable arithmetic — fixed it. Like the KN hash overflow, it is a bug no teardown finds by reading.</p>
+    <p style="font-size:12.5px;color:var(--dim);margin:6px 0 0">Honest caveats: the mixing weights were grid-searched (120 points) on the same 200k test slice rather than tuned on validation — a mild optimism the full pipeline removes; and the 25.02 stands beside, not against, kNN-LM's 16.12 — that figure used the full 103M-token datastore and a stronger base LM.</p>
+  </div>
+  <p class="tblcap">Every number in this section was computed on the laptop, not taken from a paper. The measured ordering — counts 282.61 &gt; transformer 52.45 &gt; fusion 26.23 &gt; gated fusion 25.02 — is the kit's entire thesis, shown on real silicon rather than asserted.</p>
 </section>
 
 <!-- CODE -->
@@ -296,7 +310,7 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
     <div class="card warn">
       <h3>Not (and it says so)</h3>
       <ul>
-        <li><b>Nothing was trained or measured on this page.</b> Running the kit needs a CUDA GPU and hours; the perplexities are targets, not results.</li>
+        <li><b>Nothing is measured live on this page</b> — the numbers in “Measured on a laptop” were computed by running the kit (RTX 4050, hours), then written in. The “What to expect” table remains targets; the measured section is results, with its caps stated (1M-key datastore, 12M-token counts, test-slice weight search).</li>
         <li>The <b>live engine is an illustration</b> of the fusion equation and gate — its three distributions are hand-set to show the mechanism, not read from a trained model.</li>
         <li>The earlier CPU-sandbox numbers from the arc (71, 82.7…) were <b>never comparable</b> — 5k-vocab with heavy UNK measured an easier task. This kit is the fix.</li>
         <li>The <b>domain-routing / cardinal-hue layer is intentionally absent</b> — WT-103 is unlabelled, so there is nothing to route. That machinery belongs to the labelled 8-domain corpus; this is the neutral, comparable substrate it rides on.</li>

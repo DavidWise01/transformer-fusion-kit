@@ -52,7 +52,8 @@ def knn_probs(keys, tru, device):
             dd, ii = torch.topk(dist, C.KNN_K, dim=1, largest=False)
             D_list.append(dd.cpu().numpy()); V_list.append(dv[ii.cpu().numpy()])
         D = np.concatenate(D_list); nn_vals = np.concatenate(V_list)
-    w = np.exp(-np.clip(D, 0, None) / C.KNN_TEMP)          # softmax over -distance
+    D = np.clip(D, 0, None)
+    w = np.exp(-(D - D.min(1, keepdims=True)) / C.KNN_TEMP)  # softmax over -distance (row-min shift: identical math, no underflow)
     w = w / w.sum(1, keepdims=True)
     pk = (w * (nn_vals == tru[:, None])).sum(1)            # prob mass on the true token
     return pk, D[:, 0]                                     # + nearest-neighbour distance
