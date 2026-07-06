@@ -225,7 +225,7 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
     <tr><td>transformer (d512, 8L, ~30M)</td><td class="tick">~28–35</td><td>GPT-2 small ≈ 29*</td></tr>
     <tr><td>transformer (d768, 12L, ~120M)</td><td class="tick">~20–24</td><td>GPT-2 large ≈ 18–20*</td></tr>
     <tr><td>+ kNN-LM fusion</td><td class="tick">−2 to −4</td><td>kNN-LM ~18.65 → ~16.12</td></tr>
-    <tr><td>+ shadow gate (adaptive w<sub>k</sub>)</td><td class="tick">a further small drop — measured: −1.21</td><td>(this kit’s addition)</td></tr>
+    <tr><td>+ shadow gate (adaptive w<sub>k</sub>)</td><td class="tick">measured leak-free: ≈0 (+0.009)</td><td>(this kit’s addition)</td></tr>
   </table>
   <p class="tblcap">* GPT-2 uses BPE/subword tokenization, so its perplexity is not <i>strictly</i> comparable to a word-level number — treat the GPT-2 column as an approximate anchor, not an identity.<br>† Published KN 5-gram figures on WikiText-103 vary with vocabulary and pruning (the ~48 the README targets is one commonly-quoted point; n-gram baselines on the full ~267k vocab often run higher). The value is honest <i>because it is comparable</i> — same algorithm, same setup — not because it hits an exact constant. kNN-LM figures: Khandelwal et al. 2020 report 18.65 → 16.12 (kNN-LM), 15.79 with a continuous cache.</p>
 </section>
@@ -238,7 +238,7 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
   <div class="two">
     <div class="card">
       <h3>The transformer learned</h3>
-      <p>The <code>small</code> preset — <b>51M params</b> (the 50k embedding makes it bigger than the "~30M" note) — trained from scratch on the GPU: ~2.8 GB VRAM, AMP, micro-batch 8, ~94% util. Validation perplexity, from random init (≈50,000):</p>
+      <p>The <code>small</code> preset — <b>76.5M params</b> by the fingerprint (untied 50k embeddings; the "~30M / 51M" earlier notes both undercounted — see below) — trained from scratch on the GPU: ~2.8 GB VRAM, AMP, micro-batch 8, ~94% util. Validation perplexity, from random init (≈50,000):</p>
       <svg viewBox="0 0 300 120" style="width:100%;height:auto;margin:6px 0" font-family="ui-monospace,monospace">
         <line x1="20" y1="100" x2="292" y2="100" stroke="#e0d9c6" stroke-width="1"/>
         <polyline fill="none" stroke="#5b4bd6" stroke-width="2.5" stroke-linejoin="round"
@@ -260,20 +260,27 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
     </div>
   </div>
   <div class="card" style="margin-top:14px">
-    <h3>The three-body fusion — measured, not projected</h3>
-    <p>With the converged checkpoint, the fixed count body, and a <b>1M-key datastore</b> (a hard RAM cap — the full build would want ~40M keys / ~40 GB), <code>fusion.py</code> ran the whole equation on the test set: 200k positions, full 50k vocabulary, brute-force GPU search (no FAISS on this box).</p>
+    <h3>The three-body fusion — measured, then re-measured honestly</h3>
+    <p>The first run (v1) reported the fusion at <b>25.02</b>, credited the datastore with <i>halving</i> the transformer's perplexity, and the shadow gate with a <b>−1.21</b> win. Two of those three claims did not survive an honest re-run. The v1 mixing weights were grid-searched on the <i>same</i> 200k test slice they were reported on — a leak — so v2 rebuilt the evaluation to <b>tune on a validation slice and report on a held-out one</b>, printing a diagnostic of exactly what the adaptive gate buys. Same checkpoint, same 1M-key datastore (2.5% of ~40M; recall 36.9%), same caps.</p>
     <table class="tbl">
-      <tr><th>body / method</th><th>measured test ppl</th></tr>
-      <tr><td>transformer (51M, converged)</td><td class="tick">52.45</td></tr>
-      <tr><td>Kneser-Ney counts (12M-token cap)</td><td class="tick">282.61</td></tr>
-      <tr><td>static triple fusion (0.6 net · 0.3 counts · 0.1 kNN)</td><td class="tick">26.23</td></tr>
-      <tr><td>+ shadow gate (w<sub>k</sub> = 0.1 · e<sup>−d/τ</sup>)</td><td class="tick"><b>25.02</b></td></tr>
+      <tr><th>body / method</th><th>v1 (test-tuned)</th><th>v2 (leak-free, held-out)</th></tr>
+      <tr><td>transformer (76.5M params — see below)</td><td class="tick">52.45</td><td class="tick">53.37</td></tr>
+      <tr><td>Kneser-Ney counts (12M-token cap)</td><td class="tick">282.61</td><td class="tick">285.26</td></tr>
+      <tr><td>best static blend (val-tuned: 0.7 net · 0.3 counts · <b>~0 kNN</b>)</td><td class="tick">26.23*</td><td class="tick">25.25</td></tr>
+      <tr><td>+ reliability gate</td><td class="tick"><b>25.02</b></td><td class="tick"><b>25.24</b></td></tr>
+      <tr><td>what the adaptive gate buys over static</td><td class="tick">−1.21 (claimed)</td><td class="tick"><b>+0.009</b></td></tr>
     </table>
-    <p>The datastore <b>halves</b> the transformer's perplexity — 52.45 → 26.23 — which is kNN-LM's published effect reproduced on a laptop with 2.5% of the keys (neighbour recall 36.9%). And the shadow gate then buys a further <b>−1.21</b> over static mixing: the "further small drop" the table above predicted, now a number.</p>
-    <p style="margin-top:8px"><b>The third bug running surfaced:</b> the first fusion pass returned <span style="font-family:var(--mono)">nan</span>. The kNN softmax exponentiated raw squared distances in 512-dim space, underflowed every neighbour weight to zero, and divided 0/0 — and the NaN then silently poisoned the whole weight search (<span style="font-family:var(--mono)">nan &lt; best</span> is always false, so the grid returned nothing). A row-min shift before the exponential — identical math, stable arithmetic — fixed it. Like the KN hash overflow, it is a bug no teardown finds by reading.</p>
-    <p style="font-size:12.5px;color:var(--dim);margin:6px 0 0">Honest caveats: the mixing weights were grid-searched (120 points) on the same 200k test slice rather than tuned on validation — a mild optimism the full pipeline removes; and the 25.02 stands beside, not against, kNN-LM's 16.12 — that figure used the full 103M-token datastore and a stronger base LM.</p>
+    <p style="font-size:12px;color:var(--dim);margin:2px 0 8px">* v1's static was a <i>hand-set</i> 0.6/0.3/0.1 blend, not a searched one — which is why the gate looked like it won by −1.21. v2 searches the static blend too, and the fight becomes fair.</p>
+    <p><b>Correction 1 — the gate's −1.21 was a tuning leak.</b> It compared a hand-set static blend against a gate tuned on the slice it was scored on. Tuned honestly on validation, the gate buys <b>+0.009 ppl</b> — the diagnostic's own verdict: <i>"the gate's win is essentially the static term; rel barely contributes."</i></p>
+    <p><b>Correction 2 — the datastore is not doing the halving.</b> At this 1M-key cap the honest search puts <b>~0 weight on the kNN channel</b>; transformer(0.7)+KN(0.3) alone already lands 25.25. The 53→25 drop is the <i>count-model mixture</i>, not the datastore. (kNN-LM's published −2 to −4 needs the full ~103M-key store — not a claim 2.5% of it can make.)</p>
+    <p style="margin-top:8px"><b>What holds:</b> the fusion record itself, ~25.2, now measured on held-out data instead of the slice it was tuned on. The two retracted claims were artifacts of an evaluation grading its own homework — and it was the kit's <i>own</i> new diagnostic that caught them. That is the point of v2: not a lower number, a truer one.</p>
   </div>
-  <p class="tblcap">Every number in this section was computed on the laptop, not taken from a paper. The measured ordering — counts 282.61 &gt; transformer 52.45 &gt; fusion 26.23 &gt; gated fusion 25.02 — is the kit's entire thesis, shown on real silicon rather than asserted.</p>
+  <div class="card warn" style="margin-top:14px">
+    <h3>Two instruments the re-run added</h3>
+    <p><b>The shadow channel</b> (<code>shadow.py</code>) — a <i>witness</i>, not a mixer. It independently recomputes the KN and kNN bodies from their raw inputs and refuses to fold a channel it can't verify, instead of blending poison through. Proven offline (<code>verify.py</code>, no GPU): on a NaN-poisoned channel the old gate returns <span class="mono">weights None</span> while the shadow <b>flags it and still fuses</b>; on a silently misaligned KN vector (finite but wrong) the gate passes it through and the shadow <b>flags 99.8%</b> of positions. The gate detects neither fault; the witness detects both.</p>
+    <p style="margin-top:6px"><b>The checkpoint fingerprint</b> (<code>model_id.py</code>) — model identity as a fact on disk (sha256 of arch-signature, of tensor bytes, of training state), deterministic across runs. Its first act was to correct this page: the checkpoint carries <b>76,552,192 params</b>, not the "51M" v1 asserted (untied embeddings). Identity is now a <span class="mono">diff</span>, not a memory.</p>
+  </div>
+  <p class="tblcap">Every number here was computed on the laptop, not taken from a paper. The honest ordering holds — counts 285 &gt; transformer 53 &gt; fusion 25.2 — and the two overclaims that didn't hold are struck through above, by the kit's own harness rather than by a reader's objection.</p>
 </section>
 
 <!-- CODE -->
@@ -288,7 +295,10 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
     <div class="mod"><div class="fn">model.py</div><div class="d">decoder-only GPT; final LayerNorm = kNN key</div></div>
     <div class="mod"><div class="fn">train.py</div><div class="d">AdamW, cosine, AMP, grad-accum, resumable</div></div>
     <div class="mod"><div class="fn">build_datastore.py</div><div class="d">hidden→next-token keys/vals + FAISS index</div></div>
-    <div class="mod"><div class="fn">fusion.py</div><div class="d">the triple mix + shadow gate; reports ppl</div></div>
+    <div class="mod"><div class="fn">fusion.py</div><div class="d">the triple mix + gate; val-tuned, held-out report, diagnostic</div></div>
+    <div class="mod"><div class="fn">shadow.py</div><div class="d">the witness channel — independent recompute, refuses to fold poison</div></div>
+    <div class="mod"><div class="fn">verify.py</div><div class="d">offline proof the witness catches NaN + silent drift (no GPU)</div></div>
+    <div class="mod"><div class="fn">model_id.py</div><div class="d">checkpoint fingerprint — arch / weights / state as sha256</div></div>
     <div class="mod"><div class="fn">README.md</div><div class="d">run order, expectations, the honesty note</div></div>
   </div>
 </section>
@@ -304,7 +314,7 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
         <li>The <b>code runs</b> — a complete, coherent pipeline (train/eval/checkpoint, KN recursion, datastore, FAISS), not pseudo-code.</li>
         <li>The <b>algorithms are canonical and cited</b>: modified Kneser-Ney (Chen &amp; Goodman); kNN-LM with the pre-softmax hidden state as the key (Khandelwal et al. 2020).</li>
         <li>The <b>comparability logic is sound</b>: WT-103, full vocab, canonical splits is the setup that makes a number legitimately comparable. The kNN-LM (Khandelwal 2020) and Chinchilla figures are verified to source; the exact KN5-on-WT103 constant varies across the literature, so it is stated as the kit’s <i>target</i>, not a fixed fact.</li>
-        <li>The <b>shadow gate</b> — the adaptive, distance-scaled kNN weight — is David’s own addition on top of standard kNN-LM.</li>
+        <li>The <b>shadow gate</b> — the adaptive, distance-scaled kNN weight — is David’s own addition on top of standard kNN-LM. Measured leak-free, it buys ≈0 over a properly-searched static blend (+0.009 ppl); it is kept as honest plumbing, not sold as a win. The separate <b>shadow <i>channel</i></b> (<code>shadow.py</code>) is the real addition that earns its place — a witness that catches faults the gate can't see.</li>
       </ul>
     </div>
     <div class="card warn">

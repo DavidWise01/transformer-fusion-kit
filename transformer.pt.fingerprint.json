@@ -1,0 +1,14 @@
+{
+  "arch": "0cbcdc7cf43a",
+  "weights": "a386fb743a2b",
+  "arch_full": "0cbcdc7cf43adab0b761810fb4f0303c24b79a7830349050a6d5ed0b1f5a8205",
+  "weights_full": "a386fb743a2bd3d299f6e3ea2abca522ea4aff3207837a3f1445cb37f1a8951d",
+  "n_params": 76552192,
+  "n_tensors": 101,
+  "state": {
+    "step": 59000,
+    "best_val_ppl": 51.27065353578072,
+    "has_optimizer": true
+  },
+  "source": "transformer.pt"
+}

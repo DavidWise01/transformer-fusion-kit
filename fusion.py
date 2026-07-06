@@ -3,8 +3,11 @@
   P_final(w) = w_n * P_transformer(w) + w_c * P_KN(w) + w_k * P_kNN(w)
 
 The kNN weight w_k is set by the SHADOW GATE: it rises with retrieval reliability
-exp(-d_nn / tau) (close nearest neighbour => trust the datastore), the piece that won
-the arc. Weights are tuned on the validation set, reported on test.
+exp(-d_nn / tau) (close nearest neighbour => trust the datastore). Weights are tuned
+on a validation slice and reported on a held-out slice — never on the slice being
+scored. The [DIAGNOSTIC] line prints what the adaptive gate actually buys over the
+best static blend; on the 1M-key datastore that margin measured ~+0.01 ppl (within
+noise), so the gate is retained as honest plumbing, not sold as the win it isn't.
 """
 import os, math, numpy as np, pickle, torch, torch.nn.functional as F
 import config as C
@@ -53,7 +56,7 @@ def knn_probs(keys, tru, device):
             D_list.append(dd.cpu().numpy()); V_list.append(dv[ii.cpu().numpy()])
         D = np.concatenate(D_list); nn_vals = np.concatenate(V_list)
     D = np.clip(D, 0, None)
-    w = np.exp(-(D - D.min(1, keepdims=True)) / C.KNN_TEMP)  # softmax over -distance (row-min shift: identical math, no underflow)
+    w = np.exp(-(D - D.min(1, keepdims=True)) / C.KNN_TEMP)  # softmax over -distance (row-min shift: no underflow)
     w = w / w.sum(1, keepdims=True)
     pk = (w * (nn_vals == tru[:, None])).sum(1)            # prob mass on the true token
     return pk, D[:, 0]                                     # + nearest-neighbour distance
@@ -87,23 +90,64 @@ def main():
     m = min(len(pc) - off, len(kn_p))
     pc[off:off+m] = kn_p[:m]
 
-    # ---- fuse: static weights (val-tuned; here a solid default) + shadow gate ----
-    rel = np.exp(-d_nn / 0.2 / d_nn.mean())                 # retrieval reliability in [0,1]
-    best = (1e9, None)
+    # ---- input integrity guard (was silently defeating the grid search) ----
+    # A NaN anywhere in a channel makes `pv < best` always False, so a poisoned
+    # run reported "weights None" and the fault was never seen. Refuse to fuse
+    # blind: report which channel is corrupt and clean it to a safe floor.
+    for name, arr in (("transformer", pn), ("KN", pc), ("kNN", pk), ("d_nn", d_nn)):
+        bad = ~np.isfinite(arr)
+        if bad.any():
+            print(f"  [GUARD] {name}: {bad.mean():.2%} non-finite entries "
+                  f"-> clamped to floor; investigate before trusting numbers")
+    pn = np.nan_to_num(pn, nan=1e-12); pc = np.nan_to_num(pc, nan=1e-12)
+    pk = np.nan_to_num(pk, nan=0.0)
+    d_nn = np.nan_to_num(d_nn, nan=np.nanmax(d_nn[np.isfinite(d_nn)]) if np.isfinite(d_nn).any() else 1.0)
+
+    # ---- retrieval-reliability gate (kept as a gate; plumbing fixed) ----
+    # Old line `np.exp(-d_nn/0.2/d_nn.mean())` saturated to ~0 at the mean distance
+    # (exp(-5)); rel did almost nothing and the win came from the static term.
+    # Scale by the distance spread so `rel` spans a usable range, and TUNE ON VAL,
+    # never on the test slice being reported.
+    scale = d_nn.std() + 1e-9
+    rel = np.exp(-(d_nn - d_nn.min()) / scale)             # in (0,1], 1 = closest nbr
+    rel = (rel - rel.min()) / (rel.max() - rel.min() + 1e-9)
+
+    # split a validation slice off the FRONT; tune weights there, report on the rest
+    nval = len(pn) // 5
+    val = slice(0, nval); tst = slice(nval, None)
+
+    def fuse(wc, bk, sk, sl):
+        wk = np.clip(bk + sk * rel[sl], 0, 0.9)
+        wn = np.clip(1 - wc - wk, 0, 1)
+        return wn * pn[sl] + wc * pc[sl] + wk * pk[sl]
+
+    def safe_ppl(p):
+        v = ppl(p)
+        return v if np.isfinite(v) else np.inf          # explicit: inf never "wins"
+
+    # search static-only (sk=0) and full-gate; compare on val, report best on test
+    best_static = (np.inf, None); best_gate = (np.inf, None)
     for wc in np.arange(0.1, 0.6, 0.1):
         for bk in np.arange(0.0, 0.4, 0.1):
-            for sk in np.arange(0.0, 0.6, 0.1):
-                wk = np.clip(bk + sk * rel, 0, 0.6)
-                wn = np.clip(1 - wc - wk, 0, 1)
-                p = wn * pn + wc * pc + wk * pk
-                pv = ppl(p)
-                if pv < best[0]: best = (pv, (wc, bk, sk))
-    static = ppl(0.6 * pn + 0.3 * pc + 0.1 * pk)
-    print("\n=== WikiText-103 test perplexity (comparable, full vocab) ===")
-    print(f"  transformer            : {ppl(pn):7.2f}")
-    print(f"  Kneser-Ney counts      : {ppl(pc):7.2f}")
-    print(f"  static triple fusion   : {static:7.2f}")
-    print(f"  + shadow gate          : {best[0]:7.2f}   (weights {best[1]})")
+            v0 = safe_ppl(fuse(wc, bk, 0.0, val))          # no rel term
+            if v0 < best_static[0]: best_static = (v0, (wc, bk, 0.0))
+            for sk in np.arange(0.1, 0.6, 0.1):
+                vg = safe_ppl(fuse(wc, bk, sk, val))       # with rel term
+                if vg < best_gate[0]: best_gate = (vg, (wc, bk, sk))
+
+    # report on the held-out test slice with the val-selected weights
+    static_te = safe_ppl(fuse(*best_static[1], tst))
+    gate_te   = safe_ppl(fuse(*best_gate[1], tst))
+    rel_gain  = static_te - gate_te                        # what the adaptive rel term actually buys
+
+    print("\n=== WikiText-103 test perplexity (val-tuned, reported on held-out slice) ===")
+    print(f"  transformer            : {ppl(pn[tst]):7.2f}")
+    print(f"  Kneser-Ney counts      : {ppl(pc[tst]):7.2f}")
+    print(f"  best static blend      : {static_te:7.2f}   (weights {best_static[1][:2]})")
+    print(f"  + reliability gate      : {gate_te:7.2f}   (weights {best_gate[1]})")
+    print(f"  [DIAGNOSTIC] adaptive rel term buys: {rel_gain:+.3f} ppl over the best static blend")
+    if best_gate[1][2] == 0.0 or abs(rel_gain) < 0.05:
+        print("  [DIAGNOSTIC] -> the gate's win is essentially the static term; rel barely contributes.")
     print("\ncompare to: GPT-2 small ~29, GPT-2 large ~18-20, kNN-LM ~16-18")
 
 if __name__ == "__main__":
