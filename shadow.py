@@ -91,7 +91,7 @@ def disagreement(primary_view, shadow_view):
 # ----------------------------------------------------------------------
 def shadow_fold(pn, pc, pk,
                 *, pc_shadow=None, pk_shadow=None,
-                w_kn=0.3, tol=1e-3, verbose=False):
+                w_kn=0.3, tol=0.15, verbose=False):
     """
     Fold channel 2 (KN, pc) back into channel 1 (transformer, pn), verified by the
     shadow recomputes. pk (kNN) participates only as a *checked* auxiliary here to
@@ -101,6 +101,13 @@ def shadow_fold(pn, pc, pk,
     recompute_knn). If None, the shadow degrades to a self-consistency check (finite +
     normalized), which still catches NaN/inf but not silent value drift — so pass them.
 
+    `tol` is the RELATIVE-disagreement threshold that separates a real fault from benign
+    numerical noise. Two correct kNN impls (FAISS vs brute force, fp16 vs fp32 keys,
+    tie-breaking) routinely differ by a few percent on the true-token prob, so a tiny tol
+    (e.g. 1e-3) would flag everything. Default 0.15 = "flag only gross disagreement";
+    non-finite is ALWAYS flagged regardless of tol. Tune on your data: if the clean-run
+    flagged_frac is high, raise tol; if a known-bad channel slips through, lower it.
+
     Returns (fused, report). Fold is per-position:
         trusted position   -> (1-w_kn)*transformer + w_kn*KN
         flagged  position  -> transformer alone (refuse to fold poison)
@@ -109,21 +116,26 @@ def shadow_fold(pn, pc, pk,
     n = len(pn)
 
     def check(name, primary, shadow):
+        nonfinite = ~np.isfinite(primary)
         if shadow is None:
             dis = np.where(np.isfinite(primary), 0.0, np.inf)   # finite-only check
         else:
             dis = disagreement(primary, shadow)
+        # ALWAYS flag non-finite; flag finite positions only past the tolerance
         flagged = ~np.isfinite(dis) | (dis > tol)
+        finite_dis = dis[np.isfinite(dis)]
         report[name] = dict(
             flagged_frac=float(flagged.mean()),
-            max_disagreement=float(np.nanmax(np.where(np.isfinite(dis), dis, np.nan))
-                                   if np.isfinite(dis).any() else np.inf),
-            any_nonfinite=bool((~np.isfinite(primary)).any()),
+            nonfinite_frac=float(nonfinite.mean()),
+            median_disagreement=float(np.median(finite_dis)) if finite_dis.size else float("inf"),
+            max_disagreement=float(finite_dis.max()) if finite_dis.size else float("inf"),
+            any_nonfinite=bool(nonfinite.any()),
         )
         if verbose:
-            print(f"    [shadow] {name}: flagged {flagged.mean():6.2%}  "
-                  f"max_disagree={report[name]['max_disagreement']:.2e}  "
-                  f"nonfinite={report[name]['any_nonfinite']}")
+            r = report[name]
+            print(f"    [shadow] {name}: flagged {r['flagged_frac']:6.2%}  "
+                  f"median_disagree={r['median_disagreement']:.2e}  "
+                  f"max={r['max_disagreement']:.2e}  nonfinite={r['any_nonfinite']}")
         return flagged
 
     kn_flagged  = check("KN(2)",  pc, pc_shadow)

@@ -11,8 +11,10 @@ The three bodies of the fusion, each earning a comparable number:
   2. neural   — a **transformer** trained from scratch on WikiText-103 (the ~20 target)
   3. kNN      — a **datastore** of the transformer's hidden states (semi-parametric / kNN-LM)
 
-...then fused with a **retrieval-reliability shadow gate** (weight the kNN body by how
-close the nearest neighbour is), the piece that won the arc.
+...then fused with a **retrieval-reliability gate** (weight the kNN body by how close the
+nearest neighbour is). ⚠ Measured honestly, that gate buys ≈0 over a properly-searched
+static blend — see "Measured on a laptop" below; it is kept as honest plumbing, not sold
+as the win it was first written up to be.
 
 --------------------------------------------------------------------------------
 ## Requirements
@@ -27,9 +29,17 @@ python prepare_data.py        # downloads WikiText-103, builds vocab, tokenizes 
 python kn_baseline.py         # modified-KN 5-gram — the count body            (~10 min, CPU, RAM-heavy)
 python train.py               # trains the transformer                          (hours, GPU)
 python build_datastore.py     # encodes train into the kNN datastore            (~30 min, GPU)
-python fusion.py              # counts + neural + kNN + shadow gate, on test     (~15 min, GPU)
+python fusion.py              # counts + neural + kNN + gate, on test            (~15 min, GPU)
 ```
 All scripts read `config.py`. Edit the model size / vocab there.
+
+**The witnesses** (optional, compose into `fusion.py` via env flags):
+```
+RUN_SHADOW=1 python fusion.py         # shadow.py — independent recompute + fold-where-verified
+RUN_UGATE=1  python fusion.py         # uncertainty_gate.py — price retrieve-only-where-unsure
+python verify.py                      # offline proof the shadow catches NaN + drift (no GPU)
+python model_id.py wt103_data/transformer.pt   # checkpoint fingerprint (arch/weights/state)
+```
 
 --------------------------------------------------------------------------------
 ## What to expect (word-level test perplexity, WikiText-103)
@@ -40,7 +50,7 @@ All scripts read `config.py`. Edit the model size / vocab there.
 | transformer (d=512, 8L, ~30M params)  | ~28–35                 | GPT-2 sm ~29    |
 | transformer (d=768, 12L, ~120M)       | ~20–24                 | GPT-2 lg ~18–20 |
 | + kNN-LM fusion                        | −2 to −4 off the net   | kNN-LM: −2 to −3|
-| + shadow gate (adaptive kNN weight)   | a further small drop   | (our addition)  |
+| + reliability gate (adaptive kNN wt)  | ≈0 measured (+0.009)†  | (our addition)  |
 
 The point: with a full vocab and a real transformer, these are **directly comparable**
 to published numbers — no UNK inflation, standard corpus, canonical splits. The count
@@ -74,17 +84,45 @@ right to be compared. The CPU-sandbox numbers from the arc (71, 82.7, etc.) neve
 --------------------------------------------------------------------------------
 ## Measured on a laptop (July 2026, RTX 4050 6GB) — actually run, not estimated
 
+† The gate row above says ≈0 because that is what it **measured**, leak-free. The story below
+is what running the kit — instead of describing it — actually found. Each step corrected the
+step before it.
+
 - **KN bug found and fixed.** The first cut of `kn_baseline.py` overflowed int64 for a 50k
   vocab at order >= 4 and silently hashed the *stored* keys while the query kept the exact
   base-V key — so every 4/5-gram lookup missed and the "5-gram" scored **2138** test ppl,
   *worse than a bigram*. `kn_baseline.py` now hashes both sides consistently. Fixed, the
-  perplexity decreases monotonically with order as it must (12M-token subset, 50k vocab):
-  order-2 **408** -> order-3 **307** -> order-4 **286** -> order-5 **281**. Still far from
-  the aspirational ~48 because this is a RAM-capped 12M-token subset (the full 83M run needs
-  ~10-30GB and lands lower — and reaching ~48 likely also needs the full 3-discount modified
-  KN, not the single-discount interpolation here). **The ~48 above was a target, not a
-  measured or reproduced number** — read it as such.
+  perplexity decreases monotonically with order (12M-token subset, 50k vocab):
+  order-2 **408** → order-3 **307** → order-4 **286** → order-5 **281**. The aspirational
+  ~48 needs the full 83M run + full 3-discount modified KN — **it was a target, not a
+  reproduced number.**
 
-- **Transformer trains on a 6GB GPU.** The `small` preset is 51M params (the 50k embedding
-  makes it bigger than the "~30M" note); it trains at ~2.8GB VRAM, micro-batch 8, AMP on,
-  ~96% GPU util on an RTX 4050 Laptop.
+- **Transformer.** The `small` preset is **76,552,192 params** by `model_id.py`'s fingerprint
+  — the untied 50k embeddings make it far bigger than the "~30M" note *and* bigger than the
+  "51M" an earlier version of this file guessed. It trains at ~2.8GB VRAM, micro-batch 8,
+  AMP, ~96% util; converged to val ppl ~51 (test 52.45) at ~58k steps.
+
+- **The fusion, measured leak-free (v2).** Weights tuned on a val slice, reported on a
+  held-out slice (an earlier run tuned on the slice it reported — a leak). Held-out:
+  transformer 53.37 · KN 285.26 · **best static blend 25.25** (0.7 net / 0.3 KN / ~0 kNN) ·
+  **+ gate 25.24**. The adaptive gate buys **+0.009 ppl** — within noise. The earlier
+  "−1.21 gate win" compared a hand-set static blend against a test-slice-tuned gate; it did
+  not survive an honest search. **The datastore is not the halving** either: the honest
+  search weights kNN ≈0, so the 53→25 drop is the transformer×KN mixture. (kNN-LM's −2/−4
+  needs the full ~103M-key store; this cap is 1M.)
+
+- **Two witnesses, one verdict (v3).** `RUN_UGATE=1` prices retrieving only where the LM is
+  unsure — and found the curve **inverted**: 0% search = 24.24 ppl, 100% search = 25.38
+  (skipping 50% *saves* 0.23 ppl). At this cap retrieving *less* is strictly better, because
+  the kNN body is net-negative. `RUN_SHADOW=1` independently recomputes the aux bodies: the
+  KN channel agrees to the bit (0% flagged), but the kNN channel diverges on **21%** of
+  positions between GPU-fp16 and CPU-fp32 (precision/tie-break, not a crash). Net-negative
+  *and* precision-unstable — the datastore is the weak link on both counts, which is why the
+  honest gate weights it ~0.
+
+- **Identity is a fact now.** `model_id.py` writes a per-checkpoint fingerprint (sha256 of
+  arch-signature / tensor bytes / training state); `diff` two of them to answer "same model?"
+  without trusting anyone's memory. It's what corrected the param count above.
+
+**Nothing here lowered the ~25.2 record. Every step made its *shape* truer** — which, for a
+kit whose whole pitch is comparability, is the point.

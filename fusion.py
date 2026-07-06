@@ -2,12 +2,14 @@
 
   P_final(w) = w_n * P_transformer(w) + w_c * P_KN(w) + w_k * P_kNN(w)
 
-The kNN weight w_k is set by the SHADOW GATE: it rises with retrieval reliability
-exp(-d_nn / tau) (close nearest neighbour => trust the datastore). Weights are tuned
-on a validation slice and reported on a held-out slice — never on the slice being
-scored. The [DIAGNOSTIC] line prints what the adaptive gate actually buys over the
-best static blend; on the 1M-key datastore that margin measured ~+0.01 ppl (within
-noise), so the gate is retained as honest plumbing, not sold as the win it isn't.
+The kNN weight w_k is set by the reliability gate: it rises with retrieval reliability
+exp(-d_nn / tau) (close nearest neighbour => trust the datastore). Weights are tuned on
+a validation slice and reported on a held-out slice — never on the slice being scored.
+Two optional witnesses compose in (env flags, default on):
+  RUN_SHADOW=1  the shadow CHANNEL — independent recompute of the aux bodies, folds
+                2->1 only where verified, alarms on the NaN-underflow / drift classes.
+  RUN_UGATE=1   the uncertainty gate — prices the speed/quality curve of retrieving
+                only where the LM is unsure (a dial, not a free lunch).
 """
 import os, math, numpy as np, pickle, torch, torch.nn.functional as F
 import config as C
@@ -148,6 +150,66 @@ def main():
     print(f"  [DIAGNOSTIC] adaptive rel term buys: {rel_gain:+.3f} ppl over the best static blend")
     if best_gate[1][2] == 0.0 or abs(rel_gain) < 0.05:
         print("  [DIAGNOSTIC] -> the gate's win is essentially the static term; rel barely contributes.")
+
+    # ---- uncertainty-gate CALIBRATION (price the speed/quality curve) ----
+    # Runs AFTER pc/pk/val exist and the weights are val-tuned, so the curve uses the
+    # same honest weights as the gate report. It computes pk for all positions (already
+    # done) to MEASURE what skipping would cost; the actual speedup comes later, by NOT
+    # searching off-mask inside knn_probs once you pick a budget.
+    if os.environ.get("RUN_UGATE", "1") == "1":
+        import uncertainty_gate as UG
+        w_kn_u = best_static[1][0]                        # the val-tuned KN weight
+        w_knn_u = 0.1                                     # small kNN weight to price (static picks ~0)
+        unc = UG.uncertainty_from_true(pn[val])          # coarse proxy from true-tok prob
+        rows = UG.calibrate(pn[val], pc[val], pk[val], unc,
+                            w_kn=w_kn_u, w_knn=w_knn_u, ppl_fn=ppl)
+        print("\n=== uncertainty gate: speed/quality Pareto (val slice, priced) ===")
+        print(f"  {'search%':>8} {'skip%':>7} {'ppl':>9}")
+        full = next(r for r in rows if r['budget'] >= 1.0)['ppl']
+        for r in rows:
+            print(f"  {r['searched_frac']*100:7.1f}% {r['skipped_frac']*100:6.1f}% "
+                  f"{r['ppl']:9.4f}   ({r['ppl']-full:+.4f} vs full search)")
+        mask = UG.choose(unc, budget=0.5)
+        a = UG.audit_skip(pn[val], pc[val], pk[val], mask, w_kn_u, w_knn_u, ppl, sample=2000)
+        print(f"  [audit] skip 50%: cost {a['cost']:+.4f} ppl "
+              f"({'free' if a['cost']<0.05 else 'priced — retrieval helps even mid-confidence'})")
+
+    # ---- shadow channel: verify 2/3/4, fold 2 into 1 conditioned on agreement ----
+    # Opt-in (RUN_SHADOW=1): the kNN recompute is a second independent datastore
+    # search, so it doubles kNN cost. The KN alignment recompute is free.
+    if os.environ.get("RUN_SHADOW", "1") == "1":
+        import shadow as SH
+        print("\nshadow channel: independent recompute + verify + fold(2->1)...")
+        # (3) independent kNN recompute from the datastore (separate impl from knn_probs)
+        dstore_k = np.load(C.DS_PATH + ".keys.npy")
+        dstore_v = np.load(C.DS_PATH + ".vals.npy")
+        pk_shadow, _ = SH.recompute_knn(keys, tru, dstore_k, dstore_v,
+                                        C.KNN_K, C.KNN_TEMP)
+        # (2) independent KN alignment recompute (catches the off-by-`order` drift)
+        pc_shadow, kn_align_bad = SH.recompute_kn_alignment(pc, kn_p, off)
+        if kn_align_bad:
+            print("  [shadow] KN alignment INVALID (off/len mismatch) -> KN fold refused")
+
+        # fold on the SAME held-out slice used above, so it's comparable
+        sl = tst
+        fused_sh, rep = SH.shadow_fold(
+            pn[sl], pc[sl], pk[sl],
+            pc_shadow=pc_shadow[sl], pk_shadow=pk_shadow[sl],
+            w_kn=best_static[1][0],           # reuse the val-tuned KN weight
+            verbose=True,
+        )
+        print(SH.shadow_report_line(rep))
+        print(f"  shadow-folded fusion    : {safe_ppl(fused_sh):7.2f}   "
+              f"(2->1 where verified; primary alone where flagged)")
+        # cross-check: did primary kNN and shadow kNN agree? (a real value-drift alarm)
+        knn_max_dis = rep["kNN(3)"]["max_disagreement"]
+        if rep["kNN(3)"]["any_nonfinite"]:
+            print("  [shadow] ALARM: primary kNN produced non-finite probs — "
+                  "the NaN-underflow class. Investigate knn_probs before trusting fusion.")
+        elif knn_max_dis > 0.05:
+            print(f"  [shadow] NOTE: primary vs independent kNN disagree "
+                  f"(max {knn_max_dis:.2%}) — the two kNN impls diverge; worth a look.")
+
     print("\ncompare to: GPT-2 small ~29, GPT-2 large ~18-20, kNN-LM ~16-18")
 
 if __name__ == "__main__":

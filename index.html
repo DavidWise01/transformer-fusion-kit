@@ -277,10 +277,24 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
   </div>
   <div class="card warn" style="margin-top:14px">
     <h3>Two instruments the re-run added</h3>
-    <p><b>The shadow channel</b> (<code>shadow.py</code>) — a <i>witness</i>, not a mixer. It independently recomputes the KN and kNN bodies from their raw inputs and refuses to fold a channel it can't verify, instead of blending poison through. Proven offline (<code>verify.py</code>, no GPU): on a NaN-poisoned channel the old gate returns <span class="mono">weights None</span> while the shadow <b>flags it and still fuses</b>; on a silently misaligned KN vector (finite but wrong) the gate passes it through and the shadow <b>flags 99.8%</b> of positions. The gate detects neither fault; the witness detects both.</p>
+    <p><b>The shadow channel</b> (<code>shadow.py</code>) — a <i>witness</i>, not a mixer. It independently recomputes the KN and kNN bodies from their raw inputs and refuses to fold a channel it can't verify, instead of blending poison through. Proven offline (<code>verify.py</code>, no GPU): on a NaN-poisoned channel the old gate returns <span class="mono">weights None</span> while the shadow <b>flags it and still fuses</b>; on a silently misaligned KN vector (finite but wrong) the gate passes it through and the shadow <b>flags 85.6%</b> of positions (at the shipped tolerance 0.15; tighter tol catches more). The gate detects neither fault; the witness detects both.</p>
     <p style="margin-top:6px"><b>The checkpoint fingerprint</b> (<code>model_id.py</code>) — model identity as a fact on disk (sha256 of arch-signature, of tensor bytes, of training state), deterministic across runs. Its first act was to correct this page: the checkpoint carries <b>76,552,192 params</b>, not the "51M" v1 asserted (untied embeddings). Identity is now a <span class="mono">diff</span>, not a memory.</p>
   </div>
-  <p class="tblcap">Every number here was computed on the laptop, not taken from a paper. The honest ordering holds — counts 285 &gt; transformer 53 &gt; fusion 25.2 — and the two overclaims that didn't hold are struck through above, by the kit's own harness rather than by a reader's objection.</p>
+  <div class="card" style="margin-top:14px">
+    <h3>v3 — the witnesses run on real data, and agree on the weak link</h3>
+    <p>v2 proved the shadow offline; v3 wired it (plus a new <b>uncertainty gate</b>) into the live fusion and ran all three on the real checkpoint. Two independent instruments — one built to save compute, one built to catch corruption — reached the <i>same</i> verdict about the datastore without being told to.</p>
+    <p style="margin-top:8px"><b>The uncertainty gate</b> (<code>uncertainty_gate.py</code>) retrieves only where the transformer is unsure, and prices the trade. The curve came out <b>inverted</b> — retrieving <i>less</i> is strictly better:</p>
+    <table class="tbl">
+      <tr><th>search fraction</th><th>skip</th><th>ppl (val slice)</th><th>vs full search</th></tr>
+      <tr><td>0% (retrieve nothing)</td><td class="tick">100%</td><td class="tick"><b>24.24</b></td><td class="tick">−1.14</td></tr>
+      <tr><td>50%</td><td class="tick">50%</td><td class="tick">24.80</td><td class="tick">−0.58</td></tr>
+      <tr><td>100% (retrieve all)</td><td class="tick">0%</td><td class="tick">25.38</td><td class="tick">+0.00</td></tr>
+    </table>
+    <p style="margin-top:6px">A tool built to trade quality for speed measured that <b>there is no quality to trade</b>: the kNN body is net-negative at this cap, so skipping 50% of searches <i>saves</i> 0.23 ppl (the audit calls it "free"). It re-confirms v2's "the datastore isn't the halving" — as a clean monotonic curve, from an instrument that had every incentive to find retrieval useful.</p>
+    <p style="margin-top:8px"><b>The shadow's first real run</b> then explains <i>why</i> to distrust the datastore. It independently recomputes both aux channels: <span class="mono">KN(2)</span> flagged <b>0.00%</b> (deterministic — agrees to the bit), but <span class="mono">kNN(3)</span> flagged <b>21%</b> — the GPU-fp16 primary and a CPU-fp32 recompute pick different top-16 neighbours on a fifth of positions (precision + tie-breaking, not a crash). Net-negative <i>and</i> precision-unstable: the datastore is the weak link on both quality and reliability, which is exactly why the honest gate weights it ~0.</p>
+    <p style="font-size:12.5px;color:var(--dim);margin:6px 0 0">Assembling and running v3 also caught two integration bugs a reader would miss: the kNN row-min underflow fix had been reverted (re-applied), and the wired-in uncertainty block referenced the KN vector before it was computed (a <span class="mono">NameError</span> that only fires when you actually run <code>main()</code>). "Verified on synthetic data" is not "run."</p>
+  </div>
+  <p class="tblcap">Every number here was computed on the laptop, not taken from a paper. The honest ordering holds — counts 285 &gt; transformer 53 &gt; fusion 25.2 — and each version made the record's <i>shape</i> truer: v1 measured it, v2 removed its leak, v3 named its weak link. None lowered it; all of it is the kit checking its own homework.</p>
 </section>
 
 <!-- CODE -->
@@ -298,6 +312,7 @@ footer{padding:26px 0 60px;text-align:center;font-family:var(--mono);font-size:1
     <div class="mod"><div class="fn">fusion.py</div><div class="d">the triple mix + gate; val-tuned, held-out report, diagnostic</div></div>
     <div class="mod"><div class="fn">shadow.py</div><div class="d">the witness channel — independent recompute, refuses to fold poison</div></div>
     <div class="mod"><div class="fn">verify.py</div><div class="d">offline proof the witness catches NaN + silent drift (no GPU)</div></div>
+    <div class="mod"><div class="fn">uncertainty_gate.py</div><div class="d">retrieve only where the LM is unsure — prices the speed/quality dial</div></div>
     <div class="mod"><div class="fn">model_id.py</div><div class="d">checkpoint fingerprint — arch / weights / state as sha256</div></div>
     <div class="mod"><div class="fn">README.md</div><div class="d">run order, expectations, the honesty note</div></div>
   </div>
