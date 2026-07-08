@@ -4,6 +4,6 @@ slug  : transformer-fusion-kit
 seal  : 2aca97f0a137e844dd8b0bf2408ea43d4126db23d771dae39f40afcf7a0aef3a
 prev  : 81bb5d1e9597e2a4889f7d14ada37793963a52f131823b2a5816ec71d9d0bbf3
 link  : 3447d3a0533aaf1e29a8bdc67a9774884fb3ae9dbc8a17064b7a008ca3c4ec90
-head  : 3447d3a0533aaf1e29a8bdc67a9774884fb3ae9dbc8a17064b7a008ca3c4ec90
+head  : 13f9ace173ef2e60af38912ba329b4afcb5a38b84a0e4495e8d30327f8c99cc2
 
 — the tether: link = sha256(index|slug|seal|prev). the chain head commits to the whole corpus.
